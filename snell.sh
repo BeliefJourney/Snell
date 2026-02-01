@@ -1,5 +1,6 @@
 #!/bin/bash
-# Author: Slotheve - Modified for v3/v4 Coexistence by Linux Server Expert
+# Enhanced Snell Installer Script - 支持多版本并存、状态查看、删除指定实例
+# 作者: BeliefJourney + Linux Server Expert
 
 RED="\033[31m"
 GREEN="\033[32m"
@@ -7,173 +8,208 @@ YELLOW="\033[33m"
 BLUE="\033[36m"
 PLAIN='\033[0m'
 
-IP4=`curl -sL -4 ip.sb`
-IP6=`curl -sL -6 ip.sb`
-CPU=`uname -m`
-
-versions=(v3 v5)
+snell_dir="/etc/snell"
+IP4=$(curl -s4 ip.sb)
+IP6=$(curl -s6 ip.sb)
+CPU=$(uname -m)
 
 colorEcho() {
     echo -e "${1}${@:2}${PLAIN}"
 }
 
 archAffix(){
-    if [[ "$CPU" = "x86_64" ]] || [[ "$CPU" = "amd64" ]]; then
+    if [[ "$CPU" == "x86_64" || "$CPU" == "amd64" ]]; then
         CPU="amd64"
-        ARCH="x86_64"
-    elif [[ "$CPU" = "armv8" ]] || [[ "$CPU" = "aarch64" ]]; then
+    elif [[ "$CPU" == "aarch64" || "$CPU" == "arm64" ]]; then
         CPU="arm64"
-        ARCH="aarch64"
     else
-        colorEcho $RED "不支持的 CPU 架构！"
+        colorEcho $RED "不支持的CPU架构: $CPU"
         exit 1
     fi
 }
 
-checkSystem() {
-    if [[ $EUID -ne 0 ]]; then
-        colorEcho $RED "请以 root 身份运行该脚本！"
-        exit 1
-    fi
-}
-
-Install_dependency(){
-    if command -v yum >/dev/null 2>&1; then
-        yum install unzip wget curl -y >/dev/null 2>&1
-    elif command -v apt >/dev/null 2>&1; then
-        apt update && apt install unzip wget curl -y >/dev/null 2>&1
-    else
-        colorEcho $RED "不支持的 Linux 系统！"
-        exit 1
-    fi
-}
-
-selectversion() {
-    echo -e "${BLUE}请选择 Snell 版本：${PLAIN}"
-    for ((i=1;i<=${#versions[@]};i++)); do
-        echo -e "${GREEN}${i}${PLAIN}) ${versions[$i-1]}"
+statusText() {
+    echo ""
+    echo -e "${BLUE}当前状态：${PLAIN}"
+    for svc in /etc/systemd/system/snell-*.service; do
+        [[ -e "$svc" ]] || continue
+        name=$(basename "$svc" .service)
+        config="/etc/snell/${name}.conf"
+        if [[ -f "$config" ]]; then
+            port=$(grep listen "$config" | awk -F ':' '{print $2}' | xargs)
+        else
+            port="未知"
+        fi
+        if systemctl is-active --quiet "$name"; then
+            echo -e " - ${GREEN}${name}${PLAIN}     ✅ 运行中（端口: ${port}）"
+        else
+            echo -e " - ${YELLOW}${name}${PLAIN}     ❌ 未运行"
+        fi
     done
-    read -p "请选择版本[1-${#versions[@]}] (默认: 2): " pick
-    [[ -z "$pick" ]] && pick=2
-    if [[ "$pick" -lt 1 || "$pick" -gt ${#versions[@]} ]]; then
-        colorEcho $RED "选择错误，请重新运行脚本。"
-        exit 1
-    fi
 
-    vers=${versions[$pick-1]}
-    if [[ "$vers" == "v3" ]]; then
-        VER="v3.0.1"
-        CONFIG_VER="v3"
-    elif [[ "$vers" == "v5" ]]; then
-        VER="v5.0.1"
-        CONFIG_VER="v5"
-    fi
-
-}
-
-set_paths() {
-    snell_conf="/etc/snell/snell-${CONFIG_VER}.conf"
-    snell_bin="/etc/snell/snell-${CONFIG_VER}"
-    service_file="/etc/systemd/system/snell-${CONFIG_VER}.service"
-}
-
-Set_port() {
-    read -p "请输入 Snell 端口 [1-65535] (默认 6666): " PORT
-    [[ -z "$PORT" ]] && PORT="6666"
-    if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [[ "$PORT" -lt 1 ]] || [[ "$PORT" -gt 65535 ]]; then
-        colorEcho $RED "端口无效，请输入 1-65535 的数字"
-        Set_port
-    fi
-}
-
-Set_psk() {
-    read -p "请输入 PSK 密钥 (默认随机生成): " PSK
-    [[ -z "$PSK" ]] && PSK=`tr -dc A-Za-z0-9 </dev/urandom | head -c 31`
-}
-
-Set_obfs() {
-    if [[ "$CONFIG_VER" == "v3" ]]; then
-        OBFS="none"
+    # ShadowTLS 状态
+    stls_conf="/etc/systemd/system/shadowtls.service"
+    if [[ -f "$stls_conf" ]]; then
+        sport=$(grep listen "$stls_conf" | grep -oE '[0-9]{2,5}' | head -1)
+        if systemctl is-active --quiet shadowtls; then
+            echo -e " - ${GREEN}ShadowTLS${PLAIN}  ✅ 运行中（端口: ${sport}）"
+        else
+            echo -e " - ${YELLOW}ShadowTLS${PLAIN}  ❌ 未运行"
+        fi
     else
-        OBFS="off"
+        echo -e " - ${YELLOW}ShadowTLS${PLAIN}  ❌ 未安装"
     fi
 }
+delete_snell() {
+    echo -e "\n${BLUE}请选择要删除的 Snell 实例：${PLAIN}"
 
+    local services=()
+    local count=0
+    for svc in /etc/systemd/system/snell-*.service; do
+        [[ -e "$svc" ]] || continue
+        name=$(basename "$svc" .service)
+        count=$((count+1))
+        services+=("$name")
+        echo -e " ${GREEN}${count})${PLAIN} ${name}"
+    done
 
-Write_config() {
-    mkdir -p /etc/snell
-    cat > ${snell_conf} <<EOF
-[snell-server]
-listen = 0.0.0.0:${PORT}
-psk = ${PSK}
-ipv6 = false
-obfs = ${OBFS}
-tfo = true
-# ${vers}
-EOF
+    if [[ $count -eq 0 ]]; then
+        echo -e "${YELLOW}未找到可删除的 Snell 实例${PLAIN}"
+        return
+    fi
+
+    echo -e " ${GREEN}0)${PLAIN} 取消"
+    read -p $'\n请输入编号: ' pick
+    [[ "$pick" == "0" || -z "$pick" ]] && echo -e "${YELLOW}已取消${PLAIN}" && return
+
+    selected=${services[$((pick-1))]}
+    if [[ -z "$selected" ]]; then
+        echo -e "${RED}编号无效${PLAIN}"
+        return
+    fi
+
+    read -p "⚠️ 确认删除 ${selected}？[y/N]: " confirm
+    if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+        systemctl stop "$selected"
+        systemctl disable "$selected"
+        rm -f "/etc/systemd/system/${selected}.service"
+        rm -f "/etc/snell/${selected}.conf"
+        rm -f "/etc/snell/${selected}"
+        systemctl daemon-reload
+        echo -e "${GREEN}✅ 已删除 ${selected}${PLAIN}"
+    else
+        echo -e "${YELLOW}已取消${PLAIN}"
+    fi
+}
+select_version() {
+    echo -e "\n请选择 Snell 版本："
+    echo -e "${GREEN}1)${PLAIN} v3"
+    echo -e "${GREEN}2)${PLAIN} v5"
+    read -p "请选择版本[1-2] (默认: 2): " ver_pick
+    [[ -z "$ver_pick" ]] && ver_pick=2
+    case "$ver_pick" in
+        1) SNELL_VER="v3.0.1"; SNELL_TAG="v3";;
+        2) SNELL_VER="v5.0.1"; SNELL_TAG="v5";;
+        *) SNELL_VER="v5.0.1"; SNELL_TAG="v5";;
+    esac
 }
 
-Download_snell() {
-    mkdir -p /tmp/snell
+prepare_config() {
+    echo -e "\n请输入 Snell 端口 [1-65535] (默认 6666):"
+    read -p "> " SNELL_PORT
+    [[ -z "$SNELL_PORT" ]] && SNELL_PORT=6666
+
+    echo -e "请输入 PSK 密钥 (默认随机生成):"
+    read -p "> " SNELL_PSK
+    [[ -z "$SNELL_PSK" ]] && SNELL_PSK=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 31)
+
+    SNELL_NAME="snell-${SNELL_TAG}"
+    SNELL_CONF="${snell_dir}/${SNELL_NAME}.conf"
+    SNELL_BIN="${snell_dir}/${SNELL_NAME}"
+    SERVICE_FILE="/etc/systemd/system/${SNELL_NAME}.service"
+}
+
+download_snell() {
     archAffix
-    DOWNLOAD_LINK="https://github.com/BeliefJourney/Snell/releases/download/${VER}/snell-server-${VER}-linux-${CPU}.zip"
-    colorEcho $YELLOW "下载 Snell ${VER}..."
-    curl -L -o /tmp/snell/snell.zip ${DOWNLOAD_LINK}
-    unzip /tmp/snell/snell.zip -d /tmp/snell/
-    mv /tmp/snell/snell-server ${snell_bin}
-    chmod +x ${snell_bin}
+    echo -e "\n下载 Snell ${SNELL_VER}..."
+    mkdir -p /tmp/snell /etc/snell
+    URL="https://raw.githubusercontent.com/BeliefJourney/Snell/main/snell-server-${SNELL_VER}-linux-${CPU}.zip"
+    curl -L "$URL" -o /tmp/snell/snell.zip
+    unzip -o /tmp/snell/snell.zip -d /tmp/snell/ || {
+        echo -e "${RED}❌ 解压失败，请检查下载链接${PLAIN}"
+        exit 1
+    }
+    mv /tmp/snell/snell-server "$SNELL_BIN"
+    chmod +x "$SNELL_BIN"
 }
 
-Deploy_snell() {
-    cat > ${service_file} <<EOF
+write_config() {
+    cat > "$SNELL_CONF" <<EOF
+[snell-server]
+listen = 0.0.0.0:${SNELL_PORT}
+psk = ${SNELL_PSK}
+ipv6 = false
+obfs = off
+tfo = false
+# ${SNELL_TAG}
+EOF
+    echo -e "\n${GREEN}配置写入：${SNELL_CONF}${PLAIN}"
+}
+
+write_service() {
+    cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=Snell Server ${CONFIG_VER}
+Description=Snell Server ${SNELL_TAG}
 After=network.target
 
 [Service]
-ExecStart=${snell_bin} -c ${snell_conf}
+ExecStart=${SNELL_BIN} -c ${SNELL_CONF}
 Restart=on-failure
-RestartSec=1s
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 EOF
-
-    systemctl daemon-reexec
     systemctl daemon-reload
-    systemctl enable snell-${CONFIG_VER}
-    systemctl restart snell-${CONFIG_VER}
+    systemctl enable "${SNELL_NAME}"
+    systemctl restart "${SNELL_NAME}"
+    echo -e "${GREEN}Snell ${SNELL_TAG} 已安装并启动${PLAIN}"
 }
 
-ShowInfo() {
-    IP=${IP4}
+Install_snell() {
+    select_version
+    prepare_config
+    download_snell
+    write_config
+    write_service
+}
+menu() {
+    clear
+    echo "################################"
+    echo -e "#     ${GREEN}Snell 多版本安装脚本${PLAIN}      #"
+    echo -e "#      Author: BeliefJourney     #"
+    echo "################################"
     echo ""
-    echo -e "${BLUE}Snell ${vers} 安装成功！配置如下：${PLAIN}"
-    echo -e "${GREEN}配置文件: ${PLAIN} ${snell_conf}"
-    echo -e "${GREEN}运行端口: ${PLAIN} ${PORT}"
-    echo -e "${GREEN}PSK密钥 : ${PLAIN} ${PSK}"
-    echo -e "${GREEN}混淆类型: ${PLAIN} ${OBFS}"
-    echo -e "${GREEN}服务名称: ${PLAIN} snell-${CONFIG_VER}.service"
-    echo -e "${GREEN}本地IP  : ${PLAIN} ${IP}"
+    echo -e "  ${GREEN}1.${PLAIN} 安装 Snell"
+    echo -e "  ${GREEN}2.${PLAIN} 删除指定 Snell 实例"
+    echo -e "  ${GREEN}3.${PLAIN} 查看运行状态"
+    echo -e "  ${GREEN}0.${PLAIN} 退出"
     echo ""
-    echo -e "👉 启动命令: ${GREEN}systemctl start snell-${CONFIG_VER}${PLAIN}"
-    echo -e "👉 停止命令: ${GREEN}systemctl stop snell-${CONFIG_VER}${PLAIN}"
-    echo -e "👉 查看状态: ${GREEN}systemctl status snell-${CONFIG_VER}${PLAIN}"
+    statusText
+    echo ""
+    read -p "请选择操作 [0-3]: " sel
+    case "$sel" in
+        1) Install_snell ;;
+        2) delete_snell ;;
+        3) statusText; read -p "按回车返回菜单..." ;;
+        0) exit 0 ;;
+        *) colorEcho $RED "无效输入，请重新选择！"; sleep 1 ;;
+    esac
+    menu
 }
 
-main() {
-    checkSystem
-    Install_dependency
-    selectversion
-    set_paths
-    Set_port
-    Set_psk
-    Set_obfs
-    Write_config
-    Download_snell
-    Deploy_snell
-    ShowInfo
-}
+# 检查 root 权限
+[[ $EUID -ne 0 ]] && echo -e "${RED}请使用 root 用户运行脚本${PLAIN}" && exit 1
 
-main
-
+# 运行主菜单
+menu
