@@ -243,10 +243,4 @@ menu() {
         0) exit 0 ;;
         *) colorEcho $RED "无效输入，请重新选择！"; sleep 1 ;;
     esac
-    menu() {
-    # 菜单定义 ...
-}
-
-# 必须加上这一段才能真正运行！
-[[ $EUID -ne 0 ]] && echo -e "${RED}请使用 root 用户运行脚本${PLAIN}" && exit 1
-menu
+    menu
