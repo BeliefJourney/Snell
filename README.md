@@ -1,7 +1,7 @@
-# Snell-v3/v4
+# Snell-v3/v5
 snell_v3的备份存档和一键脚本
 ## 一键脚本
 ```
-bash <(curl -fsSL https://raw.githubusercontent.com/Slotheve/Snell/main/snell.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/BeliefJourney/Snell/main/snell.sh)
 ```
 ![](https://raw.githubusercontent.com/Slotheve/Snell/main/snell.png)![](https://raw.githubusercontent.com/Slotheve/Snell/main/stls.png)
