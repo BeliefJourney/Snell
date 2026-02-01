@@ -166,29 +166,21 @@ EOF
 
 export_config() {
     echo -e "\n${BLUE}已存在的配置文件：${PLAIN}"
-    local configs=()
-    local count=0
-
-    for f in /etc/snell/snell-*.conf; do
-        [[ -e "$f" ]] || continue
-        base=$(basename "$f" .conf)
-        configs+=("$base")
-        count=$((count+1))
-        echo -e " ${GREEN}${count})${PLAIN} $base"
-    done
-
-    if [[ $count -eq 0 ]]; then
+    configs=$(ls /etc/snell/snell-*.conf 2>/dev/null)
+    if [[ -z "$configs" ]]; then
         echo -e "${YELLOW}未找到任何配置文件${PLAIN}"
         return
     fi
 
-    echo -e " ${GREEN}0)${PLAIN} 取消"
-    read -p $'\n请输入配置编号: ' pick
-    [[ -z "$pick" || "$pick" == "0" ]] && echo -e "${YELLOW}已取消${PLAIN}" && return
-    config_id="${configs[$((pick-1))]}"
-    [[ -z "$config_id" ]] && echo -e "${RED}无效编号${PLAIN}" && return
+    for f in $configs; do
+        base=$(basename "$f" .conf)
+        echo " - $base"
+    done
 
+    read -p $'\n请输入要导出的配置ID（如 snell-v3-user123）: ' config_id
     CONF_FILE="/etc/snell/${config_id}.conf"
+    [[ ! -f "$CONF_FILE" ]] && echo -e "${RED}配置文件不存在: ${config_id}${PLAIN}" && return
+
     TAG=$(echo "$config_id" | cut -d- -f2)
     USER_ID=$(echo "$config_id" | cut -d- -f3-)
     PORT=$(grep listen "$CONF_FILE" | awk -F ':' '{print $2}' | xargs)
@@ -202,11 +194,13 @@ export_config() {
     [[ -z "$opt" ]] && opt=1
 
     if [[ "$opt" == "1" ]]; then
-        echo -e "\n${GREEN}📄 Surge 配置：${PLAIN}"
-        echo "[Proxy]"
         if [[ "$TAG" == "v3" ]]; then
+            echo -e "\n${GREEN}📄 Surge 配置：${PLAIN}"
+            echo "[Proxy]"
             echo "snell-${USER_ID} = snell, ${IP4}, ${PORT}, psk=${PSK}, obfs=none"
         else
+            echo -e "\n${GREEN}📄 Surge 配置：${PLAIN}"
+            echo "[Proxy]"
             echo "snell-${USER_ID} = snell, ${IP4}, ${PORT}, psk=${PSK}, version=5, tfo=false"
         fi
     elif [[ "$opt" == "2" && "$TAG" == "v3" ]]; then
@@ -222,6 +216,7 @@ export_config() {
         echo -e "${RED}❌ 不支持的选项或版本${PLAIN}"
     fi
 }
+
 menu() {
     clear
     echo "################################"
