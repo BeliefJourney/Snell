@@ -245,3 +245,8 @@ menu() {
     esac
     menu
 }
+# 确保使用 root 运行
+[[ $EUID -ne 0 ]] && echo -e "${RED}请使用 root 用户运行脚本${PLAIN}" && exit 1
+
+# 启动菜单
+menu
