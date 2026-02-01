@@ -116,7 +116,7 @@ EOF
 Download_snell() {
     mkdir -p /tmp/snell
     archAffix
-    DOWNLOAD_LINK="https://github.com/BeliefJourney/Snell/blob/main/${VER}/snell-server-${VER}-linux-${CPU}.zip"
+    DOWNLOAD_LINK="https://github.com/BeliefJourney/Snell/releases/download/${VER}/snell-server-${VER}-linux-${CPU}.zip"
     colorEcho $YELLOW "下载 Snell ${VER}..."
     curl -L -o /tmp/snell/snell.zip ${DOWNLOAD_LINK}
     unzip /tmp/snell/snell.zip -d /tmp/snell/
