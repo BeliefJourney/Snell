@@ -177,12 +177,89 @@ EOF
 }
 
 Install_snell() {
-    select_version
-    prepare_config
-    download_snell
-    write_config
-    write_service
+    # 1. 选择版本
+    echo -e "\n请选择 Snell 版本："
+    echo -e "${GREEN}1)${PLAIN} v3"
+    echo -e "${GREEN}2)${PLAIN} v5"
+    read -p "请选择版本[1-2] (默认: 2): " ver_pick
+    [[ -z "$ver_pick" || "$ver_pick" == "2" ]] && SNELL_VER="v5.0.1" && SNELL_TAG="v5"
+    [[ "$ver_pick" == "1" ]] && SNELL_VER="v3.0.1" && SNELL_TAG="v3"
+
+    # 2. 用户ID
+    read -p $'\n请输入用户ID（英文+数字）：' USER_ID
+    if [[ ! "$USER_ID" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        echo -e "${RED}无效用户ID，必须是英文+数字组合${PLAIN}"
+        return
+    fi
+
+    # 3. 端口
+    read -p "请输入 Snell 端口 [1-65535] (默认: 6666): " SNELL_PORT
+    [[ -z "$SNELL_PORT" ]] && SNELL_PORT=6666
+
+    # 4. PSK 密钥
+    read -p "请输入 PSK 密钥 (默认随机生成): " SNELL_PSK
+    [[ -z "$SNELL_PSK" ]] && SNELL_PSK=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 31)
+
+    # 5. 设置路径
+    mkdir -p /etc/snell
+    archAffix
+    BIN_NAME="/etc/snell/snell-${SNELL_TAG}"
+    CONF_FILE="/etc/snell/snell-${SNELL_TAG}-${USER_ID}.conf"
+    SERVICE_NAME="snell-${SNELL_TAG}-${USER_ID}"
+    SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+
+    # 6. 下载对应版本的snell（如不存在）
+    if [[ ! -f "$BIN_NAME" ]]; then
+        echo -e "${YELLOW}下载 Snell ${SNELL_VER}...${PLAIN}"
+        mkdir -p /tmp/snell
+        curl -L -o /tmp/snell/snell.zip "https://raw.githubusercontent.com/BeliefJourney/Snell/main/snell-server-${SNELL_VER}-linux-${CPU}.zip"
+        unzip -o /tmp/snell/snell.zip -d /tmp/snell/ || {
+            echo -e "${RED}❌ 解压失败，请检查下载链接${PLAIN}"
+            return
+        }
+        mv /tmp/snell/snell-server "$BIN_NAME"
+        chmod +x "$BIN_NAME"
+    fi
+
+    # 7. 写配置文件
+    cat > "$CONF_FILE" <<EOF
+[snell-server]
+listen = 0.0.0.0:${SNELL_PORT}
+psk = ${SNELL_PSK}
+ipv6 = false
+obfs = off
+tfo = false
+# ${SNELL_TAG}-${USER_ID}
+EOF
+
+    # 8. 写 systemd 服务
+    cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=Snell ${SNELL_TAG} Server for ${USER_ID}
+After=network.target
+
+[Service]
+ExecStart=${BIN_NAME} -c ${CONF_FILE}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # 9. 启动服务
+    systemctl daemon-reload
+    systemctl enable "$SERVICE_NAME"
+    systemctl restart "$SERVICE_NAME"
+
+    echo -e "\n${GREEN}✅ 安装完成！${PLAIN}"
+    echo -e "${BLUE}用户ID：${PLAIN} ${USER_ID}"
+    echo -e "${BLUE}版本：${PLAIN} ${SNELL_TAG}"
+    echo -e "${BLUE}端口：${PLAIN} ${SNELL_PORT}"
+    echo -e "${BLUE}PSK：${PLAIN} ${SNELL_PSK}"
+    echo -e "${BLUE}服务名：${PLAIN} ${SERVICE_NAME}"
 }
+
 menu() {
     clear
     echo "################################"
