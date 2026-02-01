@@ -208,7 +208,7 @@ Install_snell() {
     SERVICE_NAME="snell-${SNELL_TAG}-${USER_ID}"
     SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
-    # 6. 下载对应版本的snell（如不存在）
+    # 6. 下载 Snell 二进制（按版本）
     if [[ ! -f "$BIN_NAME" ]]; then
         echo -e "${YELLOW}下载 Snell ${SNELL_VER}...${PLAIN}"
         mkdir -p /tmp/snell
@@ -227,7 +227,7 @@ Install_snell() {
 listen = 0.0.0.0:${SNELL_PORT}
 psk = ${SNELL_PSK}
 ipv6 = false
-obfs = off
+obfs = ${SNELL_TAG == "v3" ? "none" : "off"}
 tfo = false
 # ${SNELL_TAG}-${USER_ID}
 EOF
@@ -252,13 +252,43 @@ EOF
     systemctl enable "$SERVICE_NAME"
     systemctl restart "$SERVICE_NAME"
 
+    # 10. 获取 IP
+    IP4=$(curl -sL -4 ip.sb)
+
+    # 11. 输出配置信息
     echo -e "\n${GREEN}✅ 安装完成！${PLAIN}"
     echo -e "${BLUE}用户ID：${PLAIN} ${USER_ID}"
     echo -e "${BLUE}版本：${PLAIN} ${SNELL_TAG}"
     echo -e "${BLUE}端口：${PLAIN} ${SNELL_PORT}"
     echo -e "${BLUE}PSK：${PLAIN} ${SNELL_PSK}"
     echo -e "${BLUE}服务名：${PLAIN} ${SERVICE_NAME}"
+
+    # 12. 输出 Surge 配置
+    echo -e "\n${GREEN}📄 Surge 配置：${PLAIN}"
+    echo "[Proxy]" > /etc/snell/snell-${SNELL_TAG}-${USER_ID}.txt
+    if [[ "$SNELL_TAG" == "v3" ]]; then
+        SURGE_LINE="snell-${USER_ID} = snell, ${IP4}, ${SNELL_PORT}, psk=${SNELL_PSK}, obfs=none"
+        CLASH_LINE="- name: snell-${USER_ID}
+  type: snell
+  server: ${IP4}
+  port: ${SNELL_PORT}
+  psk: \"${SNELL_PSK}\"
+  obfs-opts:
+    mode: none"
+        echo "$SURGE_LINE"
+        echo "$SURGE_LINE" >> /etc/snell/snell-${SNELL_TAG}-${USER_ID}.txt
+        echo -e "\n${GREEN}📄 Clash 配置：${PLAIN}"
+        echo "$CLASH_LINE"
+        echo -e "\n$CLASH_LINE" >> /etc/snell/snell-${SNELL_TAG}-${USER_ID}.txt
+    else
+        SURGE_LINE="snell-${USER_ID} = snell, ${IP4}, ${SNELL_PORT}, psk=${SNELL_PSK}, version=5, tfo=false"
+        echo "$SURGE_LINE"
+        echo "$SURGE_LINE" >> /etc/snell/snell-${SNELL_TAG}-${USER_ID}.txt
+    fi
+
+    echo -e "\n${YELLOW}配置已保存至：/etc/snell/snell-${SNELL_TAG}-${USER_ID}.txt${PLAIN}"
 }
+
 
 menu() {
     clear
