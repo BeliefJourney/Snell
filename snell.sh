@@ -166,6 +166,59 @@ EOF
     echo -e "\n${YELLOW}配置已保存：${OUT_FILE}${PLAIN}"
 }
 
+export_config() {
+    echo -e "\n${BLUE}已存在的配置文件：${PLAIN}"
+    configs=$(ls /etc/snell/snell-*.conf 2>/dev/null)
+    if [[ -z "$configs" ]]; then
+        echo -e "${YELLOW}未找到任何配置文件${PLAIN}"
+        return
+    fi
+
+    for f in $configs; do
+        base=$(basename "$f" .conf)
+        echo " - $base"
+    done
+
+    read -p $'\n请输入要导出的配置ID（如 snell-v3-user123）: ' config_id
+    CONF_FILE="/etc/snell/${config_id}.conf"
+    [[ ! -f "$CONF_FILE" ]] && echo -e "${RED}配置文件不存在: ${config_id}${PLAIN}" && return
+
+    TAG=$(echo "$config_id" | cut -d- -f2)
+    USER_ID=$(echo "$config_id" | cut -d- -f3-)
+    PORT=$(grep listen "$CONF_FILE" | awk -F ':' '{print $2}' | xargs)
+    PSK=$(grep psk "$CONF_FILE" | awk -F '=' '{print $2}' | xargs)
+    IP4=$(curl -s4 ip.sb)
+
+    echo -e "\n${BLUE}请选择导出格式：${PLAIN}"
+    echo -e " ${GREEN}1)${PLAIN} Surge"
+    [[ "$TAG" == "v3" ]] && echo -e " ${GREEN}2)${PLAIN} Clash"
+    read -p "请选择格式 (默认 1): " opt
+    [[ -z "$opt" ]] && opt=1
+
+    if [[ "$opt" == "1" ]]; then
+        if [[ "$TAG" == "v3" ]]; then
+            echo -e "\n${GREEN}📄 Surge 配置：${PLAIN}"
+            echo "[Proxy]"
+            echo "snell-${USER_ID} = snell, ${IP4}, ${PORT}, psk=${PSK}, obfs=none"
+        else
+            echo -e "\n${GREEN}📄 Surge 配置：${PLAIN}"
+            echo "[Proxy]"
+            echo "snell-${USER_ID} = snell, ${IP4}, ${PORT}, psk=${PSK}, version=5, tfo=false"
+        fi
+    elif [[ "$opt" == "2" && "$TAG" == "v3" ]]; then
+        echo -e "\n${GREEN}📄 Clash 配置：${PLAIN}"
+        echo "- name: snell-${USER_ID}"
+        echo "  type: snell"
+        echo "  server: ${IP4}"
+        echo "  port: ${PORT}"
+        echo "  psk: \"${PSK}\""
+        echo "  obfs-opts:"
+        echo "    mode: none"
+    else
+        echo -e "${RED}❌ 不支持的选项或版本${PLAIN}"
+    fi
+}
+
 menu() {
     clear
     echo "################################"
@@ -176,21 +229,19 @@ menu() {
     echo -e "  ${GREEN}1.${PLAIN} 安装 Snell"
     echo -e "  ${GREEN}2.${PLAIN} 删除指定 Snell 实例"
     echo -e "  ${GREEN}3.${PLAIN} 查看运行状态"
+    echo -e "  ${GREEN}4.${PLAIN} 导出指定配置（Surge/Clash）"
     echo -e "  ${GREEN}0.${PLAIN} 退出"
     echo ""
     statusText
     echo ""
-    read -p "请选择操作 [0-3]: " sel
+    read -p "请选择操作 [0-4]: " sel
     case "$sel" in
         1) Install_snell ;;
         2) delete_snell ;;
         3) statusText; read -p "按回车返回菜单..." ;;
+        4) export_config; read -p "按回车返回菜单..." ;;
         0) exit 0 ;;
         *) colorEcho $RED "无效输入，请重新选择！"; sleep 1 ;;
     esac
     menu
 }
-
-[[ $EUID -ne 0 ]] && echo -e "${RED}请使用 root 用户运行脚本${PLAIN}" && exit 1
-
-menu
