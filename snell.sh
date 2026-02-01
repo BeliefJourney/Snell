@@ -177,7 +177,6 @@ EOF
 }
 
 Install_snell() {
-    # 1. 选择版本
     echo -e "\n请选择 Snell 版本："
     echo -e "${GREEN}1)${PLAIN} v3"
     echo -e "${GREEN}2)${PLAIN} v5"
@@ -185,22 +184,18 @@ Install_snell() {
     [[ -z "$ver_pick" || "$ver_pick" == "2" ]] && SNELL_VER="v5.0.1" && SNELL_TAG="v5"
     [[ "$ver_pick" == "1" ]] && SNELL_VER="v3.0.1" && SNELL_TAG="v3"
 
-    # 2. 用户ID
     read -p $'\n请输入用户ID（英文+数字）：' USER_ID
     if [[ ! "$USER_ID" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-        echo -e "${RED}无效用户ID，必须是英文+数字组合${PLAIN}"
+        echo -e "${RED}❌ 无效用户ID${PLAIN}"
         return
     fi
 
-    # 3. 端口
     read -p "请输入 Snell 端口 [1-65535] (默认: 6666): " SNELL_PORT
     [[ -z "$SNELL_PORT" ]] && SNELL_PORT=6666
 
-    # 4. PSK 密钥
     read -p "请输入 PSK 密钥 (默认随机生成): " SNELL_PSK
     [[ -z "$SNELL_PSK" ]] && SNELL_PSK=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 31)
 
-    # 5. 设置路径
     mkdir -p /etc/snell
     archAffix
     BIN_NAME="/etc/snell/snell-${SNELL_TAG}"
@@ -208,31 +203,41 @@ Install_snell() {
     SERVICE_NAME="snell-${SNELL_TAG}-${USER_ID}"
     SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
-    # 6. 下载 Snell 二进制（按版本）
     if [[ ! -f "$BIN_NAME" ]]; then
         echo -e "${YELLOW}下载 Snell ${SNELL_VER}...${PLAIN}"
         mkdir -p /tmp/snell
         curl -L -o /tmp/snell/snell.zip "https://raw.githubusercontent.com/BeliefJourney/Snell/main/snell-server-${SNELL_VER}-linux-${CPU}.zip"
         unzip -o /tmp/snell/snell.zip -d /tmp/snell/ || {
-            echo -e "${RED}❌ 解压失败，请检查下载链接${PLAIN}"
+            echo -e "${RED}❌ 解压失败${PLAIN}"
             return
         }
         mv /tmp/snell/snell-server "$BIN_NAME"
         chmod +x "$BIN_NAME"
     fi
 
-    # 7. 写配置文件
+    # 设置 OBFS 选项
+    if [[ "$SNELL_TAG" == "v3" ]]; then
+        OBFS_MODE="none"
+    else
+        OBFS_MODE="off"
+    fi
+
+    # 写配置文件
     cat > "$CONF_FILE" <<EOF
 [snell-server]
 listen = 0.0.0.0:${SNELL_PORT}
 psk = ${SNELL_PSK}
 ipv6 = false
-obfs = ${SNELL_TAG == "v3" ? "none" : "off"}
+obfs = ${OBFS_MODE}
 tfo = false
 # ${SNELL_TAG}-${USER_ID}
 EOF
 
-    # 8. 写 systemd 服务
+    if [[ ! -s "$CONF_FILE" ]]; then
+        echo -e "${RED}❌ 配置文件创建失败: $CONF_FILE${PLAIN}"
+        return
+    fi
+
     cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=Snell ${SNELL_TAG} Server for ${USER_ID}
@@ -247,15 +252,12 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-    # 9. 启动服务
     systemctl daemon-reload
     systemctl enable "$SERVICE_NAME"
     systemctl restart "$SERVICE_NAME"
 
-    # 10. 获取 IP
     IP4=$(curl -sL -4 ip.sb)
 
-    # 11. 输出配置信息
     echo -e "\n${GREEN}✅ 安装完成！${PLAIN}"
     echo -e "${BLUE}用户ID：${PLAIN} ${USER_ID}"
     echo -e "${BLUE}版本：${PLAIN} ${SNELL_TAG}"
@@ -263,31 +265,33 @@ EOF
     echo -e "${BLUE}PSK：${PLAIN} ${SNELL_PSK}"
     echo -e "${BLUE}服务名：${PLAIN} ${SERVICE_NAME}"
 
-    # 12. 输出 Surge 配置
+    # 输出配置
+    OUT_FILE="/etc/snell/snell-${SNELL_TAG}-${USER_ID}.txt"
     echo -e "\n${GREEN}📄 Surge 配置：${PLAIN}"
-    echo "[Proxy]" > /etc/snell/snell-${SNELL_TAG}-${USER_ID}.txt
+    echo "[Proxy]" > "$OUT_FILE"
     if [[ "$SNELL_TAG" == "v3" ]]; then
-        SURGE_LINE="snell-${USER_ID} = snell, ${IP4}, ${SNELL_PORT}, psk=${SNELL_PSK}, obfs=none"
-        CLASH_LINE="- name: snell-${USER_ID}
+        SURGE="snell-${USER_ID} = snell, ${IP4}, ${SNELL_PORT}, psk=${SNELL_PSK}, obfs=none"
+        CLASH="- name: snell-${USER_ID}
   type: snell
   server: ${IP4}
   port: ${SNELL_PORT}
   psk: \"${SNELL_PSK}\"
   obfs-opts:
     mode: none"
-        echo "$SURGE_LINE"
-        echo "$SURGE_LINE" >> /etc/snell/snell-${SNELL_TAG}-${USER_ID}.txt
+        echo "$SURGE"
+        echo "$SURGE" >> "$OUT_FILE"
         echo -e "\n${GREEN}📄 Clash 配置：${PLAIN}"
-        echo "$CLASH_LINE"
-        echo -e "\n$CLASH_LINE" >> /etc/snell/snell-${SNELL_TAG}-${USER_ID}.txt
+        echo "$CLASH"
+        echo -e "\n$CLASH" >> "$OUT_FILE"
     else
-        SURGE_LINE="snell-${USER_ID} = snell, ${IP4}, ${SNELL_PORT}, psk=${SNELL_PSK}, version=5, tfo=false"
-        echo "$SURGE_LINE"
-        echo "$SURGE_LINE" >> /etc/snell/snell-${SNELL_TAG}-${USER_ID}.txt
+        SURGE="snell-${USER_ID} = snell, ${IP4}, ${SNELL_PORT}, psk=${SNELL_PSK}, version=5, tfo=false"
+        echo "$SURGE"
+        echo "$SURGE" >> "$OUT_FILE"
     fi
 
-    echo -e "\n${YELLOW}配置已保存至：/etc/snell/snell-${SNELL_TAG}-${USER_ID}.txt${PLAIN}"
+    echo -e "\n${YELLOW}配置已保存：${OUT_FILE}${PLAIN}"
 }
+
 
 
 menu() {
