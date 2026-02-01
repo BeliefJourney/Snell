@@ -26,7 +26,6 @@ archAffix(){
         exit 1
     fi
 }
-
 statusText() {
     echo -e "\n${BLUE}当前状态：${PLAIN}"
     for svc in /etc/systemd/system/snell-*.service; do
@@ -77,7 +76,6 @@ delete_snell() {
         echo -e "${YELLOW}已取消${PLAIN}"
     fi
 }
-
 Install_snell() {
     echo -e "\n请选择 Snell 版本："
     echo -e "${GREEN}1)${PLAIN} v3"
@@ -245,8 +243,7 @@ menu() {
     esac
     menu
 }
-# 确保使用 root 运行
-[[ $EUID -ne 0 ]] && echo -e "${RED}请使用 root 用户运行脚本${PLAIN}" && exit 1
 
-# 启动菜单
+# 启动
+[[ $EUID -ne 0 ]] && echo -e "${RED}请使用 root 用户运行脚本${PLAIN}" && exit 1
 menu
