@@ -244,3 +244,4 @@ menu() {
         *) colorEcho $RED "无效输入，请重新选择！"; sleep 1 ;;
     esac
     menu
+}
