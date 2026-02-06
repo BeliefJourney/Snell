@@ -206,7 +206,7 @@ EOF
   port: ${SNELL_PORT}
   psk: \"${SNELL_PSK}\"
   obfs-opts:
-    mode: none"
+    mode: \"\""
         echo "$SURGE" | tee -a "$OUT_FILE"
         echo -e "\n${GREEN}📄 Clash 配置：${PLAIN}\n$CLASH" | tee -a "$OUT_FILE"
     else
@@ -288,7 +288,7 @@ export_config() {
         echo "  port: ${PORT}"
         echo "  psk: \"${PSK}\""
         echo "  obfs-opts:"
-        echo "    mode: none"
+        echo "    mode: \"\""
     else
         echo -e "${RED}❌ 不支持的选项或版本${PLAIN}"
     fi
@@ -324,6 +324,10 @@ menu() {
 }
 
 ensure_installed "$1"
+
+if [[ ! -t 0 && -r /dev/tty ]]; then
+    exec < /dev/tty
+fi
 
 # 启动
 [[ $EUID -ne 0 ]] && echo -e "${RED}请使用 root 用户运行脚本${PLAIN}" && exit 1
