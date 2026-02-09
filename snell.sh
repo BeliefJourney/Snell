@@ -22,6 +22,17 @@ colorEcho() {
     echo -e "${1}${@:2}${PLAIN}"
 }
 
+ensure_deps() {
+    [[ $EUID -ne 0 ]] && return
+    if command -v apt-get >/dev/null 2>&1; then
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -y
+        apt-get install -y curl unzip ca-certificates systemd
+    else
+        colorEcho $YELLOW "未检测到 apt-get，跳过依赖安装"
+    fi
+}
+
 ensure_link() {
     [[ $EUID -ne 0 ]] && return
     local target="$INSTALL_PATH"
@@ -41,6 +52,7 @@ ensure_installed() {
             exit 1
         fi
         chmod +x "$INSTALL_PATH"
+        ensure_deps
         ensure_link
         exec "$INSTALL_PATH"
     fi
@@ -224,6 +236,7 @@ update_script() {
         return
     fi
     chmod +x "$INSTALL_PATH"
+    ensure_deps
     ensure_link
     echo -e "${GREEN}✅ 已更新：${INSTALL_PATH}${PLAIN}"
     if [[ "$SCRIPT_PATH" != "$INSTALL_PATH" ]]; then
@@ -331,5 +344,6 @@ fi
 
 # 启动
 [[ $EUID -ne 0 ]] && echo -e "${RED}请使用 root 用户运行脚本${PLAIN}" && exit 1
+ensure_deps
 ensure_link
 menu
